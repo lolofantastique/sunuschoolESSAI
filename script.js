@@ -1818,7 +1818,7 @@
       <div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-slate-100 text-slate-600 uppercase text-[10px]"><tr><th class="py-2 px-3">Élève</th><th class="py-2 px-3">Statut</th><th class="py-2 px-3">Retard (min)</th><th class="py-2 px-3">Motif</th></tr></thead><tbody>${rows}</tbody></table></div>
       <button onclick="saveAttendance()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-2.5 rounded-xl shadow">💾 Enregistrer l'appel</button>`;
   }
-  window.saveAttendance = function () {
+  window.saveAttendance = async function () {
     const t = myTeacher();
     if (!t || !attClass || !classesOfTeacher(t).includes(attClass)) { showToast('🔒 Vous ne pouvez faire l\'appel que dans vos propres classes.'); return; }
     if (!attDate || attDate > todayISO()) { showToast('⚠️ Date invalide.'); return; }
@@ -1834,6 +1834,10 @@
       if (!notified && (s === 'A' || s === 'R')) flagged.push(mat);
     });
     if (flagged.includes('minutes')) { showToast('⚠️ Indiquez la durée du retard en minutes (1 à 240).'); return; }
+    // essai : enregistrement dans Supabase ; en cas d'échec, l'écran revient à l'état du serveur
+    const okSave = await window.sunuPersistAttendance({ day: attDate, cls: attClass, mats: [...valid],
+      rows: Object.entries(next).map(([mat, v]) => ({ mat, s: v.s, min: v.min, motif: v.motif })) });
+    if (!okSave) { await window.sunuReload(); return; }
     if (Object.keys(next).length) ATT[key] = next; else delete ATT[key];
     saveAll(); renderAttendance();
     const n = flagged.length;
@@ -1933,6 +1937,7 @@
   const core = () => { const o = JSON.parse(snapshot()); delete o.ts; return JSON.stringify(o); };
   function updateBadge(msg, cls) {
     const b = $('save-badge'); if (!b) return;
+    if (currentRole === 'teacher') { b.textContent = '☁️ Vos notes et vos appels sont enregistrés en ligne'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-emerald-600 text-white'; return; }
     b.textContent = '👁️ Lecture seule : les modifications faites à l’écran ne sont pas encore enregistrées'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-amber-500 text-white';
   }
   function saveAll(force) {
@@ -2038,6 +2043,7 @@
   }
   function annualAvg(mat) { const a = genAvg('S1', mat), b = genAvg('S2', mat); if (a === null && b === null) return null; return a === null ? b : b === null ? a : (a + b) / 2; }
   function rankIn(sem, mat) {
+    if (currentRole === 'student') { const r = (window.sunuRanks || {})[sem]; return r || null; }   // essai : rang calculé par Supabase
     const st = allStudentsDB.find(s => s.matricule === mat); if (!st) return null;
     const list = studentsOfClass(st.classe).map(s => ({ m: s.matricule, v: sem === 'AN' ? annualAvg(s.matricule) : genAvg(sem, s.matricule) })).filter(x => x.v !== null).sort((a, b) => b.v - a.v);
     const i = list.findIndex(x => x.m === mat); return i < 0 ? null : { rank: i + 1, total: list.length };
@@ -2137,22 +2143,28 @@
     row.querySelector('.grade-avg').textContent = valid && full ? ((a + b + 2 * c) / 4).toFixed(2) : '—';
   };
 
-  window.saveGrades = function () {
+  window.saveGrades = async function () {
     const t = myTeacher();
     if (!canEditGrades()) { showToast('🔒 Vous ne pouvez saisir que les notes de vos propres classes.'); return; }
     const key = subjKeyForTeacher(t), rows = [...document.querySelectorAll('#grades-table-body tr[data-mat]')];
     for (const row of rows) for (const i of row.querySelectorAll('.grade-input')) if (i.value !== '' && !isValidGrade(i.value)) { showToast('⚠️ Une note est hors de 0–20. Corrigez les champs en rouge.'); return; }
-    GR[selSem][key] = GR[selSem][key] || {};
+    const sem = selSem, cls = selClass, subjName = (SUBJECTS.find(x => x.key === key) || {}).name;
+    GR[sem][key] = GR[sem][key] || {};
+    const payload = [];
     rows.forEach(row => {
       const mat = row.dataset.mat;
-      if (!studentsOfClass(selClass).some(s => s.matricule === mat)) return;
+      if (!studentsOfClass(cls).some(s => s.matricule === mat)) return;
+      const had = !!GR[sem][key][mat];
       const e = {}; let any = false;
       row.querySelectorAll('.grade-input').forEach(i => { if (i.value !== '') { e[i.dataset.f] = Number(i.value); any = true; } });
-      if (any) GR[selSem][key][mat] = e; else delete GR[selSem][key][mat];
+      if (any || had) payload.push({ mat, subject: subjName, sem, d1: e.d1 === undefined ? null : e.d1, d2: e.d2 === undefined ? null : e.d2, compo: e.compo === undefined ? null : e.compo });
+      if (any) GR[sem][key][mat] = e; else delete GR[sem][key][mat];
     });
+    // essai : enregistrement dans Supabase ; en cas d'échec, l'écran revient à l'état du serveur
+    if (!(await window.sunuPersistGrades(payload))) { await window.sunuReload(); return; }
     gradesMeta.at = new Date(); saveAll();
     renderGradesTable(); renderReportCard(); renderStudentSpace();
-    showToast(`💾 Notes de ${t.subject} • ${selClass} • ${SEM[selSem]} enregistrées.`);
+    showToast(`💾 Notes de ${t.subject} • ${cls} • ${SEM[sem]} enregistrées.`);
   };
 
   /* ---------- Bulletins ---------- */
@@ -2292,22 +2304,23 @@
     const tch = R.teachers.map(t => ({ id: t.id, matricule: t.matricule || '', name: t.name, subject: t.subject, phone: t.phone || '', slots: t.slots }));
 
     // Notes : GR[semestre][matière][matricule] = { d1, d2, compo }
-    const gr = { S1: {}, S2: {} }, incomplete = [];
+    const gr = { S1: {}, S2: {} };
     R.grades.forEach(g => {
       const key = keyOf(g.subject); if (!key || !gr[g.sem]) return;
       let d1 = num(g.d1), d2 = num(g.d2), cp = num(g.compo); const av = num(g.average);
       if (d1 === null && d2 === null && cp === null && av !== null) { d1 = d2 = cp = av; }   // matière à moyenne seule
-      if (d1 === null || d2 === null || cp === null) { incomplete.push(g.mat + ' ' + g.subject); return; }
-      (gr[g.sem][key] = gr[g.sem][key] || {})[g.mat] = { d1, d2, compo: cp };
+      const e = {}; if (d1 !== null) e.d1 = d1; if (d2 !== null) e.d2 = d2; if (cp !== null) e.compo = cp;
+      if (!Object.keys(e).length) return;
+      (gr[g.sem][key] = gr[g.sem][key] || {})[g.mat] = e;
     });
-    if (incomplete.length) console.warn('Notes incomplètes ignorées pour l’instant :', incomplete);
 
     // Anciennes structures du prototype (rang, moyenne générale) : élèves ayant des notes au S1
     const sd = []; let nid = 1;
     stu.forEach(s => {
-      const m = gr.S1.maths && gr.S1.maths[s.matricule]; if (!m) return;
+      const full = e => e && ['d1', 'd2', 'compo'].every(f => typeof e[f] === 'number');
+      const m = gr.S1.maths && gr.S1.maths[s.matricule]; if (!full(m)) return;
       const others = {};
-      Object.keys(gr.S1).forEach(k => { if (k === 'maths') return; const e = gr.S1[k][s.matricule]; if (e) others[k] = Math.round(((e.d1 + e.d2 + e.compo) / 3) * 100) / 100; });
+      Object.keys(gr.S1).forEach(k => { if (k === 'maths') return; const e = gr.S1[k][s.matricule]; if (full(e)) others[k] = Math.round(((e.d1 + e.d2 + e.compo) / 3) * 100) / 100; });
       sd.push({ id: nid++, name: s.nom, matricule: s.matricule, d1: m.d1, d2: m.d2, compo: m.compo, others });
     });
     studentsData.splice(0, studentsData.length, ...sd);
@@ -2329,6 +2342,7 @@
     syncSubjects();
     allStudentsDB.forEach(s => safe(() => { if (feeOf(s)) refreshStatut(s); }));
     rerenderAll();
+    safe(renderGradesTable); safe(renderReportCard); safe(renderAttendance);
   };
 
   const boot = () => {
@@ -2424,7 +2438,8 @@
   const ERR = '⚠️ Identifiant ou mot de passe incorrect.';
   const toEmail = id => String(id).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '@' + CFG.emailDomain;
   const HOME_TAB = { student: 'student', teacher: 'teacher', admin: 'classes-registry' };
-  let lastError = '';
+  let lastError = '', sessionRole = null;
+  const IDS = window.sunuIds = { student: {}, subject: {}, class: {} };
 
   // Aucune donnée de l'école ne doit rester dans le navigateur (ordinateurs partagés)
   function purgeLocal() {
@@ -2465,6 +2480,16 @@
       if (t && c) t.slots.push({ day: s.day, start: hm(s.start_time), end: hm(s.end_time), classe: c.name, room: s.room || c.room || '' });
     });
     const matOf = id => (studById[id] || {}).matricule;
+    IDS.student = {}; students.forEach(s => { IDS.student[s.matricule] = s.id; });
+    IDS.subject = {}; subjects.forEach(s => { IDS.subject[s.name] = s.id; });
+    IDS.class = {}; classes.forEach(c => { IDS.class[c.name] = c.id; });
+    // Rang de l'élève : calculé par le serveur (un élève ne voit pas les notes de ses camarades)
+    window.sunuRanks = {};
+    if (role === 'student') {
+      const rk = await sb.rpc('my_class_ranks');
+      if (rk.error) console.warn('Rang indisponible (exécutez supabase-rank.sql) :', rk.error.message);
+      else (rk.data || []).forEach(x => { window.sunuRanks[x.semester] = { rank: x.rank, total: x.total }; });
+    }
 
     return {
       classes: classes.map(c => ({ id: c.id, name: c.name, level: c.level, room: c.room || '',
@@ -2489,6 +2514,7 @@
     if (expectedRole && prof.role !== expectedRole) return 'role';
     try {
       purgeLocal();
+      sessionRole = prof.role;
       window.sunuHydrate(await loadRemoteData(prof.role));
     } catch (e) {
       console.error(e); lastError = e.message || String(e); return 'data';
@@ -2512,6 +2538,50 @@
     switchTab(HOME_TAB[prof.role]);
     return 'ok';
   }
+
+  const userId = async () => { const { data } = await sb.auth.getSession(); return data && data.session ? data.session.user.id : null; };
+
+  // Recharge les données depuis Supabase (après un échec d'enregistrement, par exemple)
+  window.sunuReload = async function () {
+    try { window.sunuHydrate(await loadRemoteData(sessionRole)); }
+    catch (e) { console.error(e); showToast('⚠️ Rechargement impossible : ' + (e.message || e)); }
+  };
+
+  // Notes saisies par un enseignant : une ligne par élève, matière et semestre
+  window.sunuPersistGrades = async function (rows) {
+    try {
+      if (!rows.length) return true;
+      const uid = await userId(), now = new Date().toISOString();
+      const payload = rows.map(r => ({ student_id: IDS.student[r.mat], subject_id: IDS.subject[r.subject], semester: r.sem,
+        d1: r.d1, d2: r.d2, compo: r.compo, average: null, updated_by: uid, updated_at: now }));
+      if (payload.some(p => !p.student_id || !p.subject_id)) throw new Error('élève ou matière inconnu');
+      const { error } = await sb.from('grades').upsert(payload, { onConflict: 'student_id,subject_id,semester' });
+      if (error) throw new Error(error.message);
+      return true;
+    } catch (e) { console.error(e); showToast('⚠️ Notes non enregistrées : ' + (e.message || e)); return false; }
+  };
+
+  // Appel d'une classe pour un jour : remplace tout l'appel de ce jour (les présents n'ont pas de ligne)
+  window.sunuPersistAttendance = async function ({ day, cls, rows, mats }) {
+    try {
+      const uid = await userId(), classId = IDS.class[cls];
+      if (!classId) throw new Error('classe inconnue');
+      if (rows.length) {
+        const payload = rows.map(r => ({ student_id: IDS.student[r.mat], class_id: classId, day, status: r.s,
+          minutes_late: r.s === 'R' ? r.min : 0, reason: r.motif || null, recorded_by: uid }));
+        if (payload.some(p => !p.student_id)) throw new Error('élève inconnu');
+        const up = await sb.from('attendance').upsert(payload, { onConflict: 'student_id,day' });
+        if (up.error) throw new Error(up.error.message);
+      }
+      const keep = new Set(rows.map(r => r.mat));
+      const gone = mats.filter(m => !keep.has(m)).map(m => IDS.student[m]).filter(Boolean);
+      if (gone.length) {
+        const del = await sb.from('attendance').delete().eq('day', day).in('student_id', gone);
+        if (del.error) throw new Error(del.error.message);
+      }
+      return true;
+    } catch (e) { console.error(e); showToast('⚠️ Appel non enregistré : ' + (e.message || e)); return false; }
+  };
 
   const MSG = {
     role: '⚠️ Ce compte n’appartient pas au profil choisi (Élève, Prof ou Admin).',
