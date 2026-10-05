@@ -1906,6 +1906,7 @@
   const okVer = o => o && [7, 8, 9].includes(o.v);
   const Store = {
     read() {
+      return null; // essai : les données viennent de Supabase, jamais du navigateur
       const found = [];
       [SKEY, ...OLDKEYS].forEach(k => {
         safe(() => { const v = localStorage.getItem(k); if (v) found.push(['navigateur', v]); });
@@ -1917,6 +1918,7 @@
       return best;
     },
     write(str) {
+      return []; // essai : rien n'est écrit dans le navigateur
       const ok = [];
       safe(() => { localStorage.setItem(SKEY, str); if (localStorage.getItem(SKEY) === str) ok.push('navigateur'); });
       safe(() => { sessionStorage.setItem(SKEY, str); ok.push('session'); });
@@ -1931,7 +1933,7 @@
   const core = () => { const o = JSON.parse(snapshot()); delete o.ts; return JSON.stringify(o); };
   function updateBadge(msg, cls) {
     const b = $('save-badge'); if (!b) return;
-    b.textContent = msg; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden ' + cls;
+    b.textContent = '👁️ Lecture seule : les modifications faites à l’écran ne sont pas encore enregistrées'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-amber-500 text-white';
   }
   function saveAll(force) {
     safe(() => {
@@ -2272,6 +2274,63 @@
     origRefresh(); applyRoleUI(); renderTeachers(); renderAbsAdmin(); renderPayments();
   };
 
+  /* ---------- Essai : remplace les données du prototype par celles de Supabase ---------- */
+  window.sunuHydrate = function (R) {
+    const keyOf = name => { const s = SUBJECTS.find(x => x.name === name); return s ? s.key : null; };
+    const numOf = m => { const x = String(m).match(/(\d+)\s*$/); return x ? parseInt(x[1], 10) : 0; };
+    const fmtFee = n => String(n || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' FCFA';
+    const num = v => (v === null || v === undefined) ? null : Number(v);
+
+    R.subjects.forEach(r => { const s = SUBJECTS.find(x => x.name === r.name); if (s) s.coeff = Number(r.coeff); });
+
+    const stu = R.students.map(s => ({ nom: s.nom, matricule: s.matricule, sexe: s.sexe || '', classe: s.classe, parent: s.parent || '',
+      phone: s.phone || '', fee: fmtFee(s.fee), statut: 'Non payé', statutClass: 'bg-amber-100 text-amber-800' }));
+    const countBy = {}; stu.forEach(s => { countBy[s.classe] = (countBy[s.classe] || 0) + 1; });
+    const clsObj = c => ({ id: c.id, name: c.name, level: c.level, effectif: countBy[c.name] || 0, pp: c.pp || '', room: c.room || '' });
+    const cls = R.classes.filter(c => !c.deletedAt).map(clsObj);
+    const trash = R.classes.filter(c => c.deletedAt).map(c => ({ cls: clsObj(c), deletedAt: c.deletedAt }));
+    const tch = R.teachers.map(t => ({ id: t.id, matricule: t.matricule || '', name: t.name, subject: t.subject, phone: t.phone || '', slots: t.slots }));
+
+    // Notes : GR[semestre][matière][matricule] = { d1, d2, compo }
+    const gr = { S1: {}, S2: {} }, incomplete = [];
+    R.grades.forEach(g => {
+      const key = keyOf(g.subject); if (!key || !gr[g.sem]) return;
+      let d1 = num(g.d1), d2 = num(g.d2), cp = num(g.compo); const av = num(g.average);
+      if (d1 === null && d2 === null && cp === null && av !== null) { d1 = d2 = cp = av; }   // matière à moyenne seule
+      if (d1 === null || d2 === null || cp === null) { incomplete.push(g.mat + ' ' + g.subject); return; }
+      (gr[g.sem][key] = gr[g.sem][key] || {})[g.mat] = { d1, d2, compo: cp };
+    });
+    if (incomplete.length) console.warn('Notes incomplètes ignorées pour l’instant :', incomplete);
+
+    // Anciennes structures du prototype (rang, moyenne générale) : élèves ayant des notes au S1
+    const sd = []; let nid = 1;
+    stu.forEach(s => {
+      const m = gr.S1.maths && gr.S1.maths[s.matricule]; if (!m) return;
+      const others = {};
+      Object.keys(gr.S1).forEach(k => { if (k === 'maths') return; const e = gr.S1[k][s.matricule]; if (e) others[k] = Math.round(((e.d1 + e.d2 + e.compo) / 3) * 100) / 100; });
+      sd.push({ id: nid++, name: s.nom, matricule: s.matricule, d1: m.d1, d2: m.d2, compo: m.compo, others });
+    });
+    studentsData.splice(0, studentsData.length, ...sd);
+
+    // Absences : ATT[date|classe][matricule]
+    const att = {};
+    R.attendance.forEach(a => { const k = a.day + '|' + classKey(a.cls); (att[k] = att[k] || {})[a.mat] = { cls: a.cls, by: '', s: a.s, min: a.min || 0, motif: a.motif || '' }; });
+
+    // Paiements
+    const pay = R.payments.map(p => ({ id: 'p' + p.id, rec: p.rec, mat: p.mat, month: p.month, amount: Number(p.amount), method: p.method, ref: p.ref || '', date: p.date, by: 'Caisse' }));
+
+    applyState({ v: 9, classes: cls, trash, students: stu, teachers: tch, GR: gr, ATT: att, PAY: pay, c: {
+      nextMatriculeNum: Math.max(468, ...stu.map(s => numOf(s.matricule))) + 1,
+      nextClassId: Math.max(0, ...R.classes.map(c => c.id)) + 1,
+      nextTeacherId: Math.max(0, ...tch.map(t => t.id)) + 1,
+      nextTeacherNum: Math.max(7, ...tch.map(t => numOf(t.matricule))) + 1,
+      dailyCash: pay.filter(p => p.date === todayISO() && p.method === 'Espèces').reduce((a, p) => a + p.amount, 0)
+    } });
+    syncSubjects();
+    allStudentsDB.forEach(s => safe(() => { if (feeOf(s)) refreshStatut(s); }));
+    rerenderAll();
+  };
+
   const boot = () => {
     safe(() => {
       const badge = document.createElement('div'); badge.id = 'save-badge'; document.body.appendChild(badge);
@@ -2281,7 +2340,6 @@
       tools.innerHTML = `<button onclick="exportSunuSchoolData()" class="bg-white text-sky-700 border border-sky-200 hover:bg-sky-50 font-bold text-[11px] px-3 py-2 rounded-xl shadow-lg">⬇ Exporter</button>
         <button onclick="importSunuSchoolData()" class="bg-white text-sky-700 border border-sky-200 hover:bg-sky-50 font-bold text-[11px] px-3 py-2 rounded-xl shadow-lg">⬆ Importer</button>
         <button onclick="resetSunuSchoolData()" class="bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 font-bold text-[11px] px-3 py-2 rounded-xl shadow-lg">↺ Réinitialiser</button>`;
-      document.body.appendChild(tools);
     });
     const best = Store.read();
     if (best) safe(() => applyState(best.o));
@@ -2356,8 +2414,7 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
 
-
-/* ===== SunuSchool essai : bloc 1 = connexion Supabase ===== */
+/* ===== SunuSchool essai : blocs 1 et 2 = connexion + lecture des données Supabase ===== */
 (() => {
   const CFG = window.SUNU_CONFIG || {};
   const sb = (window.supabase && CFG.supabaseUrl && CFG.supabaseKey)
@@ -2367,12 +2424,75 @@
   const ERR = '⚠️ Identifiant ou mot de passe incorrect.';
   const toEmail = id => String(id).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') + '@' + CFG.emailDomain;
   const HOME_TAB = { student: 'student', teacher: 'teacher', admin: 'classes-registry' };
+  let lastError = '';
 
-  // Entre dans le site avec le profil lu dans Supabase. Retourne 'ok' | 'noprofile' | 'role'.
+  // Aucune donnée de l'école ne doit rester dans le navigateur (ordinateurs partagés)
+  function purgeLocal() {
+    [localStorage, sessionStorage].forEach(st => {
+      try { Object.keys(st).filter(k => /^sunuschool/i.test(k)).forEach(k => st.removeItem(k)); } catch (_) {}
+    });
+    try { if (String(window.name).startsWith('SUNUSCHOOL:')) window.name = ''; } catch (_) {}
+  }
+
+  // Lit toutes les lignes d'une table, par pages de 1000 (limite de Supabase)
+  async function fetchAll(table) {
+    const rows = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from(table).select('*').order('id').range(from, from + 999);
+      if (error) throw new Error(table + ' : ' + error.message);
+      rows.push(...data);
+      if (data.length < 1000) break;
+    }
+    return rows;
+  }
+
+  async function loadRemoteData(role) {
+    const [classes, teachersFull, students, slots, subjects, grades, attendance, payments, dir] = await Promise.all([
+      fetchAll('classes'), fetchAll('teachers'), fetchAll('students'), fetchAll('teacher_slots'),
+      fetchAll('subjects'), fetchAll('grades'), fetchAll('attendance'), fetchAll('payments'),
+      sb.rpc('teacher_directory')
+    ]);
+    if (dir.error && role !== 'admin') throw new Error('annuaire des enseignants indisponible (exécutez supabase-directory.sql) : ' + dir.error.message);
+    const hm = t => String(t).slice(0, 5);
+    const byId = rows => { const o = {}; rows.forEach(r => { o[r.id] = r; }); return o; };
+    const classById = byId(classes), studById = byId(students), subjById = byId(subjects);
+
+    const teacherById = {};
+    ((dir.data) || []).forEach(t => { teacherById[t.id] = { id: t.id, matricule: '', name: t.full_name, subject: t.subject, phone: '', slots: [] }; });
+    teachersFull.forEach(t => { teacherById[t.id] = { id: t.id, matricule: t.matricule, name: t.full_name, subject: t.subject, phone: t.phone || '', slots: [] }; });
+    slots.forEach(s => {
+      const t = teacherById[s.teacher_id], c = classById[s.class_id];
+      if (t && c) t.slots.push({ day: s.day, start: hm(s.start_time), end: hm(s.end_time), classe: c.name, room: s.room || c.room || '' });
+    });
+    const matOf = id => (studById[id] || {}).matricule;
+
+    return {
+      classes: classes.map(c => ({ id: c.id, name: c.name, level: c.level, room: c.room || '',
+        pp: (teacherById[c.head_teacher_id] || {}).name || '', deletedAt: c.deleted_at ? new Date(c.deleted_at).getTime() : 0 })),
+      teachers: Object.values(teacherById).sort((a, b) => a.id - b.id),
+      students: students.map(s => ({ nom: s.full_name, matricule: s.matricule, sexe: s.sex, classe: (classById[s.class_id] || {}).name || '',
+        parent: s.parent_name, phone: s.phone, fee: s.monthly_fee })),
+      subjects: subjects.map(s => ({ name: s.name, coeff: s.coeff })),
+      grades: grades.map(g => ({ mat: matOf(g.student_id), subject: (subjById[g.subject_id] || {}).name, sem: g.semester,
+        d1: g.d1, d2: g.d2, compo: g.compo, average: g.average })).filter(g => g.mat && g.subject),
+      attendance: attendance.map(a => ({ mat: matOf(a.student_id), cls: (classById[a.class_id] || {}).name || '', day: a.day,
+        s: a.status, min: a.minutes_late, motif: a.reason || '' })).filter(a => a.mat),
+      payments: payments.map(p => ({ id: p.id, rec: p.receipt_no, mat: matOf(p.student_id), month: p.month, amount: p.amount,
+        method: p.method, ref: p.reference, date: p.paid_on })).filter(p => p.mat)
+    };
+  }
+
+  // Entre dans le site avec le profil lu dans Supabase. Retourne 'ok' | 'noprofile' | 'role' | 'data'.
   async function enterSession(user, expectedRole) {
     const { data: prof, error } = await sb.from('profiles').select('role, matricule, full_name').eq('id', user.id).maybeSingle();
     if (error || !prof) return 'noprofile';
     if (expectedRole && prof.role !== expectedRole) return 'role';
+    try {
+      purgeLocal();
+      window.sunuHydrate(await loadRemoteData(prof.role));
+    } catch (e) {
+      console.error(e); lastError = e.message || String(e); return 'data';
+    }
     currentRole = prof.role;
     let label = '🧑‍💼 Administration';
     if (prof.role === 'student') {
@@ -2393,6 +2513,11 @@
     return 'ok';
   }
 
+  const MSG = {
+    role: '⚠️ Ce compte n’appartient pas au profil choisi (Élève, Prof ou Admin).',
+    noprofile: '⚠️ Compte non activé : contactez l’administration.'
+  };
+
   window.handleLogin = async function (e) {
     if (e && e.preventDefault) e.preventDefault();
     if (!sb) { showToast('⚠️ Service de connexion indisponible. Vérifiez votre connexion internet.'); return; }
@@ -2400,21 +2525,17 @@
     if (!id || !pwd) { showToast(ERR); return; }
     const { data, error } = await sb.auth.signInWithPassword({ email: toEmail(id), password: pwd });
     if (error || !data || !data.user) { showToast(ERR); return; }
+    showToast('⏳ Chargement des données…');
     const r = await enterSession(data.user, pendingRole);
     if (r === 'ok') return;
     await sb.auth.signOut();
-    showToast(r === 'role' ? '⚠️ Ce compte n’appartient pas au profil choisi (Élève, Prof ou Admin).' : '⚠️ Compte non activé : contactez l’administration.');
+    showToast(r === 'data' ? '⚠️ Données non chargées : ' + lastError : MSG[r]);
   };
 
   window.logout = async function () {
     if (sb) { try { await sb.auth.signOut(); } catch (_) {} }
-    currentRole = 'student'; currentTeacherId = null;
-    el('session-label').textContent = 'Session';
-    el('login-pwd-input').value = '';
-    document.body.classList.add('locked');
-    setLoginRole('student');
-    openLoginModal();
-    window.scrollTo(0, 0);
+    purgeLocal();
+    location.reload();   // vide aussi la mémoire de la page
   };
 
   // Reprise automatique de la session après un rechargement de la page
@@ -2423,7 +2544,7 @@
     const { data } = await sb.auth.getSession();
     if (data && data.session) {
       const r = await enterSession(data.session.user, null);
-      if (r !== 'ok') await sb.auth.signOut();
+      if (r !== 'ok') { await sb.auth.signOut(); if (r === 'data') showToast('⚠️ Données non chargées : ' + lastError); }
     }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore); else restore();
