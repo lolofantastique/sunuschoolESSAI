@@ -1897,9 +1897,10 @@
     const st = attStats(mat);
     showToast(`💬 Message WhatsApp (simulation) à ${s.parent} (${s.phone}) : ${s.nom} — ${st.abs} absence(s) non justifiée(s), ${st.late} retard(s).`);
   };
-  window.attDelete = function (key, mat) {
+  window.attDelete = async function (key, mat) {
     if (currentRole !== 'admin' || !ATT[key] || !ATT[key][mat]) return;
     if (!confirm('Supprimer définitivement cet enregistrement ?')) return;
+    if (!(await window.sunuDeleteAttendance(key.split('|')[0], mat))) return;
     delete ATT[key][mat]; if (!Object.keys(ATT[key]).length) delete ATT[key];
     saveAll(); renderAbsAdmin(); showToast('🗑️ Enregistrement supprimé.');
   };
@@ -1938,6 +1939,7 @@
   function updateBadge(msg, cls) {
     const b = $('save-badge'); if (!b) return;
     if (currentRole === 'teacher') { b.textContent = '☁️ Vos notes et vos appels sont enregistrés en ligne'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-emerald-600 text-white'; return; }
+    if (currentRole === 'admin') { b.textContent = '☁️ Paiements à la caisse et suppression d’absences enregistrés en ligne • autres modifications : lecture seule'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-sky-700 text-white'; return; }
     b.textContent = '👁️ Lecture seule : les modifications faites à l’écran ne sont pas encore enregistrées'; b.className = 'fixed bottom-4 left-4 z-40 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg print:hidden bg-amber-500 text-white';
   }
   function saveAll(force) {
@@ -1965,7 +1967,7 @@
     ['renderClassesMgtTable','renderRegistry','renderRegistryList','renderCashStudents','renderTeachers','renderSchedules','renderStudentSpace'].forEach(n => { if (typeof window[n] === 'function') safe(() => window[n]()); });
     safe(renderAbsAdmin); safe(renderPayments);
     const cash = $('total-cash-counter'); if (cash) cash.innerText = dailyCash.toLocaleString() + ' FCFA';
-    const box = $('box-cash-total'); if (box) box.innerText = (845000 + dailyCash).toLocaleString() + ' FCFA';
+    if (window.cashKpis) safe(window.cashKpis);
     const mp = $('matricule-preview'); if (mp) mp.innerText = 'SN-2025-' + String(nextMatriculeNum).padStart(4, '0');
   }
   window.resetSunuSchoolData = function () {
@@ -2345,6 +2347,14 @@
     safe(renderGradesTable); safe(renderReportCard); safe(renderAttendance);
   };
 
+  /* ---------- Essai : accès du bloc « caisse » aux paiements ---------- */
+  window.sunuPayApi = {
+    months: MONTHS,
+    all: () => PAY.slice(),
+    remaining: (mat, m) => { const s = allStudentsDB.find(x => x.matricule === mat); return s ? Math.max(0, feeOf(s) - paidFor(mat, m)) : 0; },
+    add: rows => { PAY.push(...rows); rows.forEach(r => { const s = allStudentsDB.find(x => x.matricule === r.mat); if (s) safe(() => refreshStatut(s)); }); safe(renderPayments); }
+  };
+
   const boot = () => {
     safe(() => {
       const badge = document.createElement('div'); badge.id = 'save-badge'; document.body.appendChild(badge);
@@ -2582,6 +2592,100 @@
       return true;
     } catch (e) { console.error(e); showToast('⚠️ Appel non enregistré : ' + (e.message || e)); return false; }
   };
+
+  /* ===== Bloc 4a : caisse (l'administration enregistre les paiements) ===== */
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const dm = m => (/^[AEIOUÉ]/i.test(m) ? 'd’' : 'de ') + m;   // « d’Octobre », « de Novembre »
+  const fcfa = n => Number(n || 0).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ') + ' FCFA';
+
+  window.sunuDeleteAttendance = async function (day, mat) {
+    try {
+      const sid = IDS.student[mat]; if (!sid) throw new Error('élève inconnu');
+      const del = await sb.from('attendance').delete().eq('day', day).in('student_id', [sid]);
+      if (del.error) throw new Error(del.error.message);
+      return true;
+    } catch (e) { console.error(e); showToast('⚠️ Suppression non enregistrée : ' + (e.message || e)); return false; }
+  };
+
+  // Totaux du mois en cours, calculés à partir des paiements enregistrés
+  window.cashKpis = function () {
+    const api = window.sunuPayApi; if (!api) return;
+    const month = today().slice(0, 7), pays = api.all().filter(p => String(p.date).slice(0, 7) === month);
+    const sum = f => pays.filter(f).reduce((a, p) => a + Number(p.amount), 0);
+    const set = (id, v) => { const x = el(id); if (x) x.textContent = v; };
+    set('kpi-month-total', fcfa(sum(() => true)));
+    set('kpi-mobile', fcfa(sum(p => p.method === 'Wave' || p.method === 'Orange Money')));
+    set('box-cash-total', fcfa(sum(p => p.method === 'Espèces')));
+    set('total-cash-counter', fcfa(api.all().filter(p => p.date === today() && p.method === 'Espèces').reduce((a, p) => a + Number(p.amount), 0)));
+  };
+
+  // Mois encore à payer pour l'élève choisi
+  function cashRefreshMonths() {
+    const api = window.sunuPayApi, sel = el('cash-month-select'), mat = (el('cash-student-select') || {}).value;
+    if (!api || !sel) return;
+    const due = api.months.filter(m => api.remaining(mat, m) > 0);
+    sel.innerHTML = due.map(m => `<option value="${m}">Mensualité ${dm(m)} (reste ${fcfa(api.remaining(mat, m))})</option>`).join('')
+      || '<option value="">Toutes les mensualités sont réglées</option>';
+    cashRefreshAmount();
+  }
+  function cashRefreshAmount() {
+    const api = window.sunuPayApi, mat = (el('cash-student-select') || {}).value, m = (el('cash-month-select') || {}).value;
+    const a = el('cash-amount-input'); if (a) a.value = api && m ? api.remaining(mat, m) : '';
+  }
+  function cashResetReceipt() {
+    ['rcpt-number', 'rcpt-date', 'rcpt-student', 'rcpt-account', 'rcpt-payer', 'rcpt-motif', 'rcpt-amount', 'rcpt-mode'].forEach(id => { const x = el(id); if (x) x.textContent = '—'; });
+  }
+
+  window.renderCashStudents = function () {
+    const sel = el('cash-student-select'); if (!sel) return;
+    const keep = sel.value;
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    sel.innerHTML = allStudentsDB.map(s => `<option value="${esc(s.matricule)}">${esc(s.nom)} • ${esc(s.classe)} (${esc(s.matricule)})</option>`).join('');
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+    if (!sel.dataset.bound) {
+      sel.dataset.bound = '1';
+      sel.addEventListener('change', cashRefreshMonths);
+      el('cash-month-select').addEventListener('change', cashRefreshAmount);
+      cashResetReceipt();
+    }
+    cashRefreshMonths();
+    window.cashKpis();
+  };
+
+  window.handleCashPayment = async function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (currentRole !== 'admin') { showToast('🔒 Seule l’administration enregistre les paiements.'); return; }
+    const api = window.sunuPayApi;
+    const mat = el('cash-student-select').value, month = el('cash-month-select').value;
+    const amount = parseInt(el('cash-amount-input').value, 10) || 0, payer = el('cash-payer-name').value.trim();
+    const mode = (document.querySelector('input[name="payment_mode"]:checked') || {}).value || 'Espèces';
+    const sid = IDS.student[mat], st = allStudentsDB.find(x => x.matricule === mat);
+    if (!sid || !st || !month) { showToast('⚠️ Choisissez un élève et un mois à régler.'); return; }
+    if (amount <= 0) { showToast('⚠️ Saisissez un montant supérieur à 0.'); return; }
+    const rest = api.remaining(mat, month);
+    if (amount > rest) { showToast(`⚠️ Montant supérieur au reste dû pour ${month} (${fcfa(rest)}).`); return; }
+    if (!payer) { showToast('⚠️ Indiquez le nom de la personne qui règle.'); return; }
+    const nums = api.all().map(p => /^REC-2026-(\d+)$/.exec(p.rec || '')).filter(Boolean).map(m => parseInt(m[1], 10));
+    const rec = 'REC-2026-' + String(Math.max(0, ...nums) + 1).padStart(4, '0'), date = today();
+    try {
+      const uid = await userId();
+      const ins = await sb.from('payments').insert({ receipt_no: rec, student_id: sid, month, amount, method: mode, reference: payer.slice(0, 80), paid_on: date, recorded_by: uid });
+      if (ins.error) throw new Error(ins.error.message);
+    } catch (err) { console.error(err); showToast('⚠️ Paiement non enregistré : ' + (err.message || err)); return; }
+    api.add([{ id: 'p' + Date.now(), rec, mat, month, amount, method: mode, ref: payer, date, by: 'Caisse' }]);
+    if (mode === 'Espèces') dailyCash += amount;
+    const set = (id, v) => { const x = el(id); if (x) x.textContent = v; };
+    set('rcpt-number', 'REÇU N° ' + rec); set('rcpt-date', 'Date : ' + new Date().toLocaleString('fr-FR'));
+    set('rcpt-student', st.nom + ' (' + st.classe + ')'); set('rcpt-account', st.matricule); set('rcpt-payer', payer);
+    set('rcpt-motif', 'Mensualité ' + dm(month)); set('rcpt-amount', fcfa(amount));
+    set('rcpt-mode', mode === 'Espèces' ? '💵 ESPÈCES / LIQUIDE' : mode === 'Wave' ? '💙 WAVE' : '🟠 ORANGE MONEY');
+    el('cash-payer-name').value = '';
+    cashRefreshMonths(); window.cashKpis();
+    showToast(`💵 Paiement de ${fcfa(amount)} enregistré • Reçu ${rec}.`);
+  };
+
+  // Paiement en ligne des parents : pas encore branché à Wave / Orange Money
+  window.payNow = function () { showToast('ℹ️ Le paiement en ligne n’est pas encore activé. Merci de régler à la caisse de l’école.'); };
 
   const MSG = {
     role: '⚠️ Ce compte n’appartient pas au profil choisi (Élève, Prof ou Admin).',

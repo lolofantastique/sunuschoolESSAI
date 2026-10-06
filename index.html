@@ -244,7 +244,7 @@
 
         <div class="bg-white/10 px-4 py-2.5 rounded-2xl border border-white/20 text-right">
           <span class="text-[10px] text-emerald-200 block uppercase font-bold">Total Espèces en Caisse Aujourd'hui</span>
-          <span class="text-2xl font-black text-emerald-300" id="total-cash-counter">140 000 <span class="text-xs text-white">FCFA</span></span>
+          <span class="text-2xl font-black text-emerald-300" id="total-cash-counter">0 FCFA</span>
         </div>
       </div>
 
@@ -259,45 +259,31 @@
           <form onsubmit="handleCashPayment(event)" class="space-y-3.5 text-xs">
             <div>
               <label class="block font-semibold text-slate-700 mb-1">Sélectionner l'Élève</label>
-              <select id="cash-student-select" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                <option value="Mariama Ba - 4ème B (SN-2025-0912)">Mariama Ba • 4ème B (SN-2025-0912)</option>
-                <option value="Abdoulaye Wade Jr - Tle L' (SN-2025-0331)">Abdoulaye Wade Jr • Tle L' (SN-2025-0331)</option>
-                <option value="Fatou Diop - 3ème A (SN-2025-0412)">Fatou Diop • 3ème A (SN-2025-0412)</option>
-                <option value="Modou Fall - 3ème A (SN-2025-0899)">Modou Fall • 3ème A (SN-2025-0899)</option>
-              </select>
+              <select id="cash-student-select" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
             </div>
 
             <div>
-              <label class="block font-semibold text-slate-700 mb-1">Mois / Objet du Paiement</label>
-              <select id="cash-month-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                <option value="Mensualité de Novembre 2025">Mensualité de Novembre 2025</option>
-                <option value="Mensualité de Décembre 2025">Mensualité de Décembre 2025</option>
-                <option value="Frais d'Inscription / Dossier">Frais d'Inscription / Dossier</option>
-              </select>
+              <label class="block font-semibold text-slate-700 mb-1">Mois à régler</label>
+              <select id="cash-month-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
             </div>
 
             <div>
               <label class="block font-semibold text-slate-700 mb-1">Mode de Règlement</label>
-              <div class="grid grid-cols-2 gap-2">
-                <label class="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-300 rounded-xl cursor-pointer">
-                  <input type="radio" name="payment_mode" value="especes" checked class="text-emerald-600">
-                  <span class="font-bold text-emerald-900 text-[11px]">💵 Espèces (Liquide)</span>
-                </label>
-                <label class="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
-                  <input type="radio" name="payment_mode" value="wave" class="text-sky-600">
-                  <span class="font-bold text-slate-700 text-[11px]">💙 Wave / OM</span>
-                </label>
+              <div class="grid grid-cols-3 gap-2">
+                <label class="flex items-center gap-1.5 p-2 bg-emerald-50 border border-emerald-300 rounded-xl cursor-pointer"><input type="radio" name="payment_mode" value="Espèces" checked class="text-emerald-600"><span class="font-bold text-emerald-900 text-[11px]">💵 Espèces</span></label>
+                <label class="flex items-center gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer"><input type="radio" name="payment_mode" value="Wave" class="text-sky-600"><span class="font-bold text-slate-700 text-[11px]">💙 Wave</span></label>
+                <label class="flex items-center gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer"><input type="radio" name="payment_mode" value="Orange Money" class="text-orange-600"><span class="font-bold text-slate-700 text-[11px]">🟠 Orange Money</span></label>
               </div>
             </div>
 
             <div>
-              <label class="block font-semibold text-slate-700 mb-1">Montant Versé en Espèces (FCFA)</label>
-              <input type="number" id="cash-amount-input" step="1000" required value="30000" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-extrabold text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <label class="block font-semibold text-slate-700 mb-1">Montant versé (FCFA)</label>
+              <input type="number" id="cash-amount-input" min="1" step="1" required value="" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-extrabold text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
             </div>
 
             <div>
-              <label class="block font-semibold text-slate-700 mb-1">Nom de la Personne ayant Déposé les Espèces</label>
-              <input type="text" id="cash-payer-name" required value="M. Amadou Ba (Père)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <label class="block font-semibold text-slate-700 mb-1">Nom de la personne qui règle (ou référence de la transaction)</label>
+              <input type="text" id="cash-payer-name" required value="" placeholder="Ex : M. Amadou Ba (père)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500">
             </div>
 
             <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 rounded-2xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2">
@@ -327,27 +313,27 @@
                 <p class="text-[10px] text-slate-500">Touba Mosquée • +221 33 800 00 00</p>
               </div>
               <div class="text-right">
-                <span class="bg-emerald-700 text-white font-mono text-[10px] px-2 py-0.5 rounded-md font-bold" id="rcpt-number">REÇU N° REC-2025-098</span>
-                <span class="block text-[10px] text-slate-400 mt-1" id="rcpt-date">Date : 02 Octobre 2025 - 10:45</span>
+                <span class="bg-emerald-700 text-white font-mono text-[10px] px-2 py-0.5 rounded-md font-bold" id="rcpt-number">REÇU N° —</span>
+                <span class="block text-[10px] text-slate-400 mt-1" id="rcpt-date">Date : —</span>
               </div>
             </div>
 
             <div class="space-y-1.5">
               <div class="flex justify-between">
                 <span class="text-slate-500">Élève concerné :</span>
-                <strong class="text-slate-900" id="rcpt-student">Mariama Ba (4ème B)</strong>
+                <strong class="text-slate-900" id="rcpt-student">—</strong>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-500">Numéro de Compte Unique :</span>
-                <span class="font-mono font-bold text-emerald-800" id="rcpt-account">SN-2025-0912</span>
+                <span class="font-mono font-bold text-emerald-800" id="rcpt-account">—</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-500">Payeur (Dépôt au guichet) :</span>
-                <span class="font-semibold text-slate-800" id="rcpt-payer">M. Amadou Ba (Père)</span>
+                <span class="font-semibold text-slate-800" id="rcpt-payer">—</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-500">Motif du versement :</span>
-                <span class="font-semibold text-slate-800" id="rcpt-motif">Mensualité de Novembre 2025</span>
+                <span class="font-semibold text-slate-800" id="rcpt-motif">—</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-500">Mode de paiement :</span>
@@ -357,12 +343,12 @@
 
             <div class="bg-white border border-amber-200 rounded-xl p-3 flex justify-between items-center text-sm font-black">
               <span>MONTANT REÇU :</span>
-              <span class="text-emerald-700 text-lg" id="rcpt-amount">30 000 FCFA</span>
+              <span class="text-emerald-700 text-lg" id="rcpt-amount">—</span>
             </div>
 
             <div class="pt-2 flex justify-between items-end text-[10px] text-slate-500 border-t border-amber-200">
               <div>
-                <p>✓ Notification WhatsApp envoyée au parent.</p>
+                <p>Reçu enregistré en ligne.</p>
                 <p>Signature & Tampon de la Caisse</p>
               </div>
               <div class="w-16 h-16 border border-slate-300 rounded-lg flex items-center justify-center font-mono text-[9px] text-slate-400">
@@ -387,16 +373,16 @@
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
-          <span class="text-xs text-slate-500 uppercase font-bold">Total Encaissé ce Mois</span>
-          <div class="text-2xl font-extrabold text-slate-900 mt-2">8 590 000 FCFA</div>
+          <span class="text-xs text-slate-500 uppercase font-bold">Total encaissé ce mois</span>
+          <div class="text-2xl font-extrabold text-slate-900 mt-2" id="kpi-month-total">—</div>
         </div>
         <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
-          <span class="text-xs text-slate-500 uppercase font-bold">Volume Wave</span>
-          <div class="text-2xl font-extrabold text-sky-600 mt-2">5 408 000 FCFA</div>
+          <span class="text-xs text-slate-500 uppercase font-bold">Mobile Money (Wave + Orange Money), ce mois</span>
+          <div class="text-2xl font-extrabold text-sky-600 mt-2" id="kpi-mobile">—</div>
         </div>
         <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
-          <span class="text-xs text-slate-500 uppercase font-bold">Espèces Guichet En Caisse</span>
-          <div class="text-2xl font-extrabold text-emerald-600 mt-2" id="box-cash-total">985 000 FCFA</div>
+          <span class="text-xs text-slate-500 uppercase font-bold">Espèces encaissées ce mois</span>
+          <div class="text-2xl font-extrabold text-emerald-600 mt-2" id="box-cash-total">—</div>
         </div>
       </div>
       </div>
