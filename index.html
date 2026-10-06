@@ -984,5 +984,90 @@
   sync();
 })();
 </script>
+
+<script>
+/* Identifiants des enseignants + changement de mot de passe par l'utilisateur */
+(function(){
+  'use strict';
+  var $=function(id){return document.getElementById(id);};
+  function toast(m){ try{ showToast(m); }catch(_){ alert(m); } }
+
+  /* 1. Bouton « Identifiants » dans le dossier d'un enseignant (administration) */
+  function addTeacherBtn(){
+    if(typeof currentRole==='undefined'||currentRole!=='admin') return;
+    var box=$('teacher-detail'); if(!box||box.querySelector('#b5-cred-btn')) return;
+    var edit=box.querySelector('button[onclick^="editTeacher"]'); if(!edit) return;
+    var t=teachersData.find(function(x){return x.id===selectedTeacherId;}); if(!t) return;
+    var b=document.createElement('button');
+    b.id='b5-cred-btn'; b.type='button';
+    b.className='bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-800 font-bold text-11px px-3 py-1.5 rounded-lg';
+    b.style.fontSize='11px';
+    b.textContent='🔐 Identifiants';
+    b.onclick=function(){ if(window.showTeacherCredentials) window.showTeacherCredentials(t); };
+    edit.parentNode.insertBefore(b,edit);
+  }
+  window.showTeacherCredentials=function(t){
+    if(typeof window.showStudentCredentials!=='function') return toast('Module des identifiants indisponible.');
+    window.showStudentCredentials({nom:t.name,matricule:t.matricule});
+    var ti=$('b4-title'), no=$('b4-note');
+    if(ti) ti.textContent='Identifiants de l’enseignant';
+    if(no) no.textContent='Le mot de passe est chiffré et ne peut pas être relu. L’enseignant peut le changer lui-même (bouton 🔑 en haut). Vous pouvez aussi en générer un nouveau.';
+  };
+  var wrapped=false;
+  function wrapDetail(){
+    if(wrapped||typeof window.renderTeacherDetail!=='function') return;
+    var o=window.renderTeacherDetail; wrapped=true;
+    window.renderTeacherDetail=function(){ var r=o.apply(this,arguments); try{addTeacherBtn();}catch(e){console.error(e);} return r; };
+  }
+
+  /* 2. Changer son propre mot de passe (tous les profils) */
+  function pwdModal(){
+    var m=$('b5-pwd'); if(m) return m;
+    m=document.createElement('div'); m.id='b5-pwd';
+    m.className='hidden fixed inset-0 z-[130] bg-slate-950/60 p-4 items-center justify-center';
+    m.innerHTML='<form id="b5-form" class="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 space-y-3 text-sm">'+
+      '<div class="text-center text-4xl">🔑</div><h2 class="font-black text-slate-900 text-lg text-center">Changer mon mot de passe</h2>'+
+      '<label class="block text-xs font-bold text-slate-700">Nouveau mot de passe (8 caractères minimum)<input id="b5-p1" type="password" autocomplete="new-password" required minlength="8" class="mt-1 w-full border border-slate-300 rounded-xl px-3 py-2"></label>'+
+      '<label class="block text-xs font-bold text-slate-700">Confirmer<input id="b5-p2" type="password" autocomplete="new-password" required minlength="8" class="mt-1 w-full border border-slate-300 rounded-xl px-3 py-2"></label>'+
+      '<button type="submit" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-xl">Enregistrer</button>'+
+      '<button type="button" id="b5-cancel" class="w-full text-slate-500 hover:text-slate-900 font-bold text-xs py-1">Annuler</button></form>';
+    document.body.appendChild(m);
+    $('b5-cancel').onclick=closePwd;
+    $('b5-form').onsubmit=async function(e){
+      e.preventDefault();
+      var p1=$('b5-p1').value, p2=$('b5-p2').value;
+      if(p1.length<8) return toast('⚠️ 8 caractères minimum.');
+      if(p1!==p2) return toast('⚠️ Les deux mots de passe ne sont pas identiques.');
+      if(!window.sb) return toast('⚠️ Connexion indisponible.');
+      var btn=e.submitter; if(btn) btn.disabled=true;
+      try{
+        var r=await window.sb.auth.updateUser({password:p1});
+        if(r.error) throw r.error;
+        $('b5-p1').value=''; $('b5-p2').value=''; closePwd();
+        toast('✅ Mot de passe modifié. Utilisez-le à la prochaine connexion.');
+      }catch(err){
+        var msg=String(err&&err.message||err);
+        toast('⚠️ '+(/same|different/i.test(msg)?'Choisissez un mot de passe différent de l’ancien.':/weak|short|least/i.test(msg)?'Mot de passe trop faible.':msg));
+      } finally { if(btn) btn.disabled=false; }
+    };
+    return m;
+  }
+  function openPwd(){ var m=pwdModal(); m.classList.remove('hidden'); m.classList.add('flex'); setTimeout(function(){var i=$('b5-p1'); if(i) i.focus();},50); }
+  function closePwd(){ var m=$('b5-pwd'); if(m){ m.classList.add('hidden'); m.classList.remove('flex'); } }
+  window.b5OpenPwd=openPwd;
+  function addPwdButton(){
+    if($('b5-pwd-btn')) return;
+    var out=document.querySelector('header button[onclick="logout()"]'); if(!out) return;
+    var b=document.createElement('button');
+    b.id='b5-pwd-btn'; b.type='button'; b.title='Changer mon mot de passe';
+    b.className='text-xs bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 font-bold px-3 py-1.5 rounded-xl transition shadow-sm';
+    b.textContent='🔑';
+    b.onclick=openPwd;
+    out.parentNode.insertBefore(b,out);
+  }
+  function boot(){ addPwdButton(); wrapDetail(); setInterval(function(){ wrapDetail(); try{addTeacherBtn();}catch(_){} },1000); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+})();
+</script>
 </body>
 </html>
