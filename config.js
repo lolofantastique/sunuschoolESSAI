@@ -5,3 +5,4 @@ window.SUNUCONFIG = {
   emailDomain: "sunuschool.example.com"
 };
 document.write('<script src="multi-ecole.js"><\/script>');
+document.write('<script src="theme-senegal.js"><\/script>');
