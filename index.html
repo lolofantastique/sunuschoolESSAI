@@ -78,7 +78,7 @@
         </div>
 
         <!-- Role / Module Switcher -->
-        <div class="hidden md:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+        <div id="desktop-tabs" class="hidden md:flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
           
           <button onclick="switchTab('classes-registry')" id="btn-classes-registry" class="tab-btn px-3 py-1.5 rounded-lg transition-all text-slate-600 hover:text-slate-900 flex items-center gap-1">
             🏫 Classes & Effectifs
@@ -125,16 +125,7 @@
 
       </div>
 
-      <div class="flex md:hidden items-center justify-between py-2 border-t border-slate-200 text-xs font-semibold overflow-x-auto custom-scrollbar gap-1">
-        <button onclick="switchTab('classes-registry')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">🏫 Classes</button>
-        <button onclick="switchTab('classes-management')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">➕ Gérer</button>
-        <button onclick="switchTab('teachers-registry')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">📚 Enseignants</button>
-        <button onclick="switchTab('cash-payment')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">💵 Caisse & Trésorerie</button>
-        <button onclick="switchTab('student')" class="tab-btn px-2.5 py-1 text-emerald-700 font-bold whitespace-nowrap">🎓 Élève</button>
-        <button onclick="switchTab('teacher')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">👨‍🏫 Prof</button>
-        <button onclick="switchTab('admin-hub')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">📅 Emplois du temps</button>
-        <button onclick="switchTab('reportcard')" class="tab-btn px-2.5 py-1 text-slate-600 whitespace-nowrap">📄 Bulletin</button>
-      </div>
+      <div id="mobile-tabs" class="flex md:hidden items-center py-2 border-t border-slate-200 text-xs font-semibold overflow-x-auto custom-scrollbar gap-1"></div>
 
     </div>
   </header>
@@ -965,5 +956,32 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="script.js"></script>
+
+<script>
+/* Barre mobile : reflète exactement les onglets autorisés de la barre ordinateur */
+(function(){
+  var desk=document.getElementById('desktop-tabs'), mob=document.getElementById('mobile-tabs');
+  if(!desk||!mob) return;
+  function label(b){ return b.textContent.replace(/\s+/g,' ').trim(); }
+  function sync(){
+    var frag=document.createDocumentFragment();
+    desk.querySelectorAll('.tab-btn').forEach(function(d){
+      if(d.classList.contains('hidden')) return;
+      var m=document.createElement('button');
+      var active=d.classList.contains('bg-white');
+      m.type='button';
+      m.className='tab-btn px-2.5 py-1 whitespace-nowrap '+(active?'text-emerald-700 font-bold':'text-slate-600');
+      m.textContent=label(d);
+      m.onclick=function(){ d.click(); };
+      frag.appendChild(m);
+    });
+    mob.innerHTML=''; mob.appendChild(frag);
+  }
+  var pending=false;
+  new MutationObserver(function(){ if(pending) return; pending=true; requestAnimationFrame(function(){pending=false;sync();}); })
+    .observe(desk,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+  sync();
+})();
+</script>
 </body>
 </html>
